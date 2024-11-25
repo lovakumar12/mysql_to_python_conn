@@ -1,0 +1,115 @@
+use dsc;
+
+
+select * from players;
+
+select * from laliga;
+
+
+
+
+-- drop table laliga_player_stats_english;
+
+
+############1. Rank players within each team by the number of goals scored using the RANK() function. Show ties explicitly.
+
+ALTER TABLE players
+RENAME COLUMN `Goals scored` TO Goals_scored;
+
+
+
+
+SELECT Team, Name, Goals_scored ,
+    RANK() OVER (PARTITION BY Team ORDER BY Goals_scored DESC) AS Rank_in_team
+FROM players;
+
+
+###############2. Calculate the cumulative number of assists by each team, ordered by team name and then by the number of assists.
+
+SELECT Team,Name,Assists,
+    SUM(Assists) OVER (PARTITION BY Team ORDER BY Assists DESC) AS Cumulative_assists
+FROM players
+ORDER BY Team, Cumulative_assists DESC;
+
+
+###3. For each team, find the previous match performance (goals scored) of players using the LAG() function.
+
+SELECT 
+    Team,
+    Name,
+    Goals_scored,
+    LAG(Goals_scored) OVER (PARTITION BY Team ORDER BY Name) AS Previous_match_goals
+FROM 
+    players;
+    
+    
+###############4. Assign sequential ranks to players within each position (e.g., forward, midfielder) based on their total appearances using the ROW_NUMBER() function.
+
+SELECT Position,Name,`Games played`,
+    ROW_NUMBER() OVER (PARTITION BY Position ORDER BY `Games played` DESC) AS Rank_in_position
+FROM players;
+
+
+####5. Divide all players into quartiles based on the number of yellow cards received using the NTILE() function.
+
+SELECT Name,Team,`Yellow Cards`,
+    NTILE(4) OVER (ORDER BY `Yellow Cards` DESC) AS Yellow_Cards_quartile 
+FROM players;
+
+####6.Compare the number of goals scored by a player with the next highest scorer in the same team using the LEAD() function. Display the difference in goals.
+-- ``
+SELECT Team,Name,`Goals scored.1`,
+    LEAD(`Goals scored.1`) OVER (PARTITION BY Team ORDER BY `Goals scored.1` DESC) AS Next_highest_goals,
+    `Goals scored.1` - LEAD(`Goals scored.1`) OVER (PARTITION BY Team ORDER BY `Goals scored.1` DESC) AS Goal_difference
+FROM 
+    players;
+    
+#######7. Identify the player with the largest gap in rank when using RANK() versus DENSE_RANK() for goals within their position.
+
+SELECT Position,Name,`Goals scored.1`,
+    RANK() OVER (PARTITION BY Position ORDER BY `Goals scored.1` DESC) AS Rank_position,
+    DENSE_RANK() OVER (PARTITION BY Position ORDER BY `Goals scored.1` DESC) AS Dense_rank_position,
+    ABS(RANK() OVER (PARTITION BY Position ORDER BY Goals_scored DESC) - DENSE_RANK() OVER (PARTITION BY Position ORDER BY Goals_scored DESC)) AS Rank_gap
+FROM players
+ORDER BY Rank_gap DESC;
+-- LIMIT 1;
+
+#######8. Calculate the running total of red cards for each team, ordered by match sequence and player.
+
+SELECT Team,Name,`Red Cards`,
+    SUM(`Red Cards`) OVER (PARTITION BY Team ORDER BY Name) AS `Running total red cards`
+FROM players;
+
+
+######9. Rank all midfielders across the league by their assists using DENSE_RANK(). Then, find the rank of the player with the most assists from a specific team (e.g., "Real Madrid").
+
+WITH Midfielder_ranks AS (
+    SELECT Team,Name,Assists,
+        DENSE_RANK() OVER (PARTITION BY Position ORDER BY Assists DESC) AS Assist_rank
+    FROM players
+    WHERE Position = 'Midfielder'
+)
+SELECT * FROM Midfielder_ranks
+WHERE Team = 'Real Madrid'
+ORDER BY Assist_rank ASC;
+-- LIMIT 1;
+
+########10. Determine the team with the least difference in cumulative goals scored between consecutive players ranked using RANK() within the team.
+
+WITH Ranked_players AS (
+    SELECT Team,Name, `Goals scored.1`,
+        RANK() OVER (PARTITION BY Team ORDER BY `Goals scored.1` DESC) AS Player_rank,
+        SUM(`Goals scored.1`) OVER (PARTITION BY Team ORDER BY `Goals scored.1` DESC) AS Cumulative_goals
+    FROM players
+),
+Goal_differences AS (
+    SELECT Team, ABS(LAG(Cumulative_goals) OVER (PARTITION BY Team ORDER BY Player_rank) - Cumulative_goals) AS Goal_diff
+    FROM Ranked_players
+)
+SELECT Team,MIN(Goal_diff) AS Least_difference
+FROM Goal_differences
+GROUP BY Team
+ORDER BY Least_difference ASC
+LIMIT 1;
+
+
